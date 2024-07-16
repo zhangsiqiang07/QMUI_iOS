@@ -166,8 +166,28 @@
 + (void)load {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
+        [self qmuisafety_UIKeyboardImpl];
         [self qmuisafety_NSString];
         [self qmuisafety_NSAttributedString];
+    });
+}
+
+static BOOL QMUIAvoidSubstring = NO;
++ (void)qmuisafety_UIKeyboardImpl {
+    // UIKeyboardImpl
+    // - (void) handleKeyWithString:(id)arg1 forKeyEvent:(id)arg2 executionContext:(id)arg3;
+    OverrideImplementation(NSClassFromString([NSString qmui_stringByConcat:@"UIKeyboard", @"Impl", nil]), NSSelectorFromString([NSString qmui_stringByConcat:@"handleKeyWithString:", @"forKeyEvent:", @"executionContext:", nil]), ^id(__unsafe_unretained Class originClass, SEL originCMD, IMP (^originalIMPProvider)(void)) {
+        return ^(NSObject *selfObject, NSString *string, UIPressesEvent *event, NSObject *context) {
+            
+            QMUIAvoidSubstring = YES;
+            
+            // call super
+            void (*originSelectorIMP)(id, SEL, NSString *, UIPressesEvent *, NSObject *);
+            originSelectorIMP = (void (*)(id, SEL, id, id, id))originalIMPProvider();
+            originSelectorIMP(selfObject, originCMD, string, event, context);
+            
+            QMUIAvoidSubstring = NO;
+        };
     });
 }
 
@@ -186,8 +206,9 @@
             }
             
             // 保护从 emoji 等 ComposedCharacterSequence 中间裁剪的场景
+            // 系统 emoji 键盘输入过程中一定会调用 substringFromIndex:text.length - 1，导致触发我们这个警告，这里特殊保护一下
             {
-                if (index < selfObject.length) {
+                if (index < selfObject.length && !QMUIAvoidSubstring) {
                     NSRange range = [selfObject rangeOfComposedCharacterSequenceAtIndex:index];
                     BOOL isValidatedIndex = range.location == index || NSMaxRange(range) == index;
                     if (!isValidatedIndex) {
